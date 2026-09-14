@@ -1,0 +1,148 @@
+package rabbitmq
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"auth_service/internal/models"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+const (
+	dlxExchangeName = "email.dlx"
+	dlqName         = "email.verification.dlq"
+)
+
+// RabbitMQClient представляет собой клиент для взаимодействия с RabbitMQ.
+// Он инкапсулирует в себе сетевое соединение, канал и целевую очередь.
+type RabbitMQClient struct {
+	conn    *amqp.Connection
+	channel *amqp.Channel
+	queue   amqp.Queue
+}
+
+// New - конструктор для класса RabbitMQClient
+func New(urlForConn, queueName string) (*RabbitMQClient, error) {
+	const op = "rabbitmq.New"
+
+	conn, err := amqp.Dial(urlForConn)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	ch, err := conn.Channel()
+	if err != nil {
+		closeErr := conn.Close()
+		return nil, fmt.Errorf("%s: %w", op, errors.Join(err, closeErr))
+	}
+
+	if err = declareDeadLetterInfra(ch, queueName, dlxExchangeName, dlqName); err != nil {
+		closeErr := ch.Close()
+		closeErr2 := conn.Close()
+
+		return nil, fmt.Errorf("%s: %w; ch.Close: %w; conn.Close: %w", op, err, closeErr, closeErr2)
+	}
+
+	q, err := ch.QueueDeclare(
+		queueName,
+		true,  // durable
+		false, // autoDelete
+		false, // exclusive
+		false, // noWait
+		amqp.Table{
+			"x-dead-letter-exchange": dlxExchangeName,
+		},
+	)
+	if err != nil {
+		closeErr := ch.Close()
+		closeErr2 := conn.Close()
+
+		return nil, fmt.Errorf("%s: %w; ch.Close: %w; conn.Close: %w", op, err, closeErr, closeErr2)
+	}
+
+	return &RabbitMQClient{conn: conn, channel: ch, queue: q}, nil
+}
+
+// SendMessage маршалит сообщение в json и отправляет его в очередь
+func (r *RabbitMQClient) SendMessage(ctx context.Context, msg models.Message) error {
+	const op = "rabbitmq.SendMessage"
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	err = r.channel.PublishWithContext(
+		ctx,
+		"",
+		r.queue.Name,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType:  "application/json",
+			Body:         body,
+			DeliveryMode: amqp.Persistent,
+			Timestamp:    time.Now(),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("publish to queue %q: %w", r.queue.Name, err)
+	}
+
+	return nil
+}
+
+// Close закрывает соединение с rabbitmq
+func (r *RabbitMQClient) Close(ctx context.Context) error {
+	done := make(chan error, 1)
+
+	go func() {
+		var errs []error
+		if err := r.channel.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("channel close: %w", err))
+		}
+		if err := r.conn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("conn close: %w", err))
+		}
+		done <- errors.Join(errs...)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("rabbitmq close timed out: %w", ctx.Err())
+	}
+}
+
+// declareDeadLetterInfra объявляет DLX-exchange и DLQ, куда попадают
+// сообщения, которые consumer явно nack'нул без requeue.
+func declareDeadLetterInfra(ch *amqp.Channel, mainQueueName, dlxName, dlqName string) error {
+	const op = "rabbitmq.declareDeadLetterInfra"
+
+	if err := ch.ExchangeDeclare(
+		dlxName, // используем параметр, а не глобальную константу
+		"direct",
+		true, false, false, false,
+		nil,
+	); err != nil {
+		return fmt.Errorf("%s: exchange declare: %w", op, err)
+	}
+
+	if _, err := ch.QueueDeclare(
+		dlqName,
+		true, false, false, false, nil,
+	); err != nil {
+		return fmt.Errorf("%s: queue declare: %w", op, err)
+	}
+
+	if err := ch.QueueBind(dlqName, mainQueueName, dlxName, false, nil); err != nil {
+		return fmt.Errorf("%s: queue bind: %w", op, err)
+	}
+
+	return nil
+}

@@ -1,0 +1,101 @@
+package verification
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"auth_service/internal/lib/mailer"
+
+	"auth_service/internal/models"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+func VerifyUserEmail(
+	ctx context.Context,
+	log *slog.Logger,
+	pub mailer.Publisher,
+	tokenTTL time.Duration,
+	tokenSecret string,
+	userID int64,
+	url, email string,
+) error {
+	token, err := generateVerificationToken(userID, tokenTTL, tokenSecret)
+	if err != nil {
+		log.Error("failed to generate token", slog.Any("err", err))
+
+		return err
+	}
+
+	verifyLink := fmt.Sprintf("%s/auth/verify?token=%s", url, token)
+
+	msg := models.Message{
+		Email:   email,
+		Link:    verifyLink,
+		Purpose: "email_verification",
+	}
+
+	if err := mailer.SendVerificationEmail(ctx, pub, msg); err != nil {
+		log.Error("failed to send verification link", slog.Any("err", err))
+	}
+
+	return nil
+}
+
+func ParseVerificationToken(tokenStr, secret string) (int64, error) {
+	const op = "verification.ParseVerificationToken"
+
+	claims := jwt.MapClaims{}
+
+	parsedToken, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("%s: unexpected signing method", op)
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("%s: failed to parse token: %w", op, err)
+	}
+
+	if !parsedToken.Valid {
+		return 0, fmt.Errorf("%s: invalid token", op)
+	}
+
+	if purpose, ok := claims["purpose"].(string); !ok || purpose != "email_verification" {
+		return 0, fmt.Errorf("%s: invalid token purpose", op)
+	}
+
+	expFloat, ok := claims["exp"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("%s: missing exp claim", op)
+	}
+	if time.Now().Unix() > int64(expFloat) {
+		return 0, fmt.Errorf("%s: token expired", op)
+	}
+
+	subFloat, ok := claims["sub"].(float64)
+	if !ok {
+		return 0, fmt.Errorf("%s: missing sub claim", op)
+	}
+
+	return int64(subFloat), nil
+}
+
+func generateVerificationToken(userID int64, tokenTTL time.Duration, secret string) (string, error) {
+	claims := jwt.MapClaims{
+		"sub":     userID,
+		"purpose": "email_verification",
+		"exp":     time.Now().Add(tokenTTL).Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	signedToken, err := token.SignedString([]byte(secret))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign jwt: %w", err)
+	}
+
+	return signedToken, nil
+}

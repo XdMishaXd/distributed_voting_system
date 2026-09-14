@@ -1,0 +1,171 @@
+package resendverificationemail
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"time"
+
+	"auth_service/internal/auth"
+	resp "auth_service/internal/lib/api/response"
+	"auth_service/internal/lib/mailer"
+	"auth_service/internal/lib/sl"
+	"auth_service/internal/lib/verification"
+	"auth_service/internal/storage"
+
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/render"
+	"github.com/go-playground/validator/v10"
+)
+
+type request struct {
+	Email string `json:"email" validate:"required,email" example:"example@domain.com"`
+}
+
+type response struct {
+	resp.Response
+}
+
+// New godoc
+// @Summary      Повторная отправка письма верификации
+// @Description  ## Описание
+// @Description  Повторно отправляет письмо с подтверждением email адреса пользователю.
+// @Description
+// @Description  ### Процесс отправки:
+// @Description  1. Валидация email формата
+// @Description  2. Проверка существования пользователя с указанным email
+// @Description  3. Проверка статуса верификации email
+// @Description  4. Если email не подтвержден - генерация нового токена верификации
+// @Description  5. Отправка письма через RabbitMQ
+// @Description  6. Возврат успешного ответа (независимо от статуса верификации)
+// @Description
+// @Description  ### Когда использовать:
+// @Description  - Пользователь не получил первое письмо
+// @Description  - Токен верификации истек (24 часа)
+// @Description  - Письмо попало в спам
+// @Description  - Пользователь случайно удалил письмо
+// @Description
+// @Description  ### Безопасность (важно!):
+// @Description  - Endpoint всегда возвращает 200 OK, даже если email уже подтвержден
+// @Description  - Это предотвращает enumeration атаки (определение существующих email)
+// @Description  - Не раскрывает информацию о существовании пользователя
+// @Description  - Rate limiting должен быть настроен (максимум 3 запроса в час на email)
+// @Description
+// @Description  ### Особенности:
+// @Description  - Если email уже подтвержден - письмо не отправляется (но ответ 200 OK)
+// @Description  - Новый токен инвалидирует предыдущий
+// @Description  - Токен действителен 24 часа
+// @Description  - Отправка асинхронная через RabbitMQ (не блокирует ответ)
+// @Description
+// @Tags         auth
+// @Accept       json
+// @Produce      json
+// @Param        email  body  object{email=string}  true  "Email пользователя"  example({"email": "user@example.com"})
+// @Success      200  {object}  object{status=string}  "Письмо отправлено (или email уже подтвержден)"
+// @Failure      400  {object}  object{status=string,error=string}  "Ошибка валидации: некорректный email формат"
+// @Failure      404  {object}  object{status=string,error=string}  "Пользователь не найден"
+// @Failure      500  {object}  object{status=string,error=string}  "Внутренняя ошибка сервера"
+// @Router       /auth/verify/resend [post]
+// @x-order      6
+func New(
+	log *slog.Logger,
+	validate *validator.Validate,
+	authMiddleware *auth.Auth,
+	msgSender mailer.Publisher,
+	verificationTokenTTL time.Duration,
+	verificationTokenSecret string,
+	address string,
+	handlerTimeout time.Duration,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		const op = "handlers.resendVerificationEmail.New"
+
+		reqLog := log.With(
+			slog.String("op", op),
+			slog.String("request_id", middleware.GetReqID(r.Context())),
+		)
+
+		var req request
+
+		err := render.DecodeJSON(r.Body, &req)
+		if err != nil {
+			reqLog.Error("Failed to decode request body", sl.Err(err))
+
+			render.Status(r, http.StatusBadRequest)
+			render.JSON(w, r, resp.Error("Failed to decode request"))
+
+			return
+		}
+
+		if err = validate.Struct(req); err != nil {
+			var validateErr validator.ValidationErrors
+
+			if errors.As(err, &validateErr) {
+				render.Status(r, http.StatusBadRequest)
+				render.JSON(w, r, resp.ValidationError(validateErr))
+
+				return
+			}
+
+			reqLog.Error("unexpected validation error type", sl.Err(err))
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, resp.Error("internal error"))
+
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
+		defer cancel()
+
+		userID, isVerified, err := authMiddleware.CheckUserVerification(ctx, req.Email)
+		if err != nil {
+			if errors.Is(err, storage.ErrUserNotFound) {
+				reqLog.Warn("User not found")
+
+				render.Status(r, http.StatusNotFound)
+				render.JSON(w, r, resp.Error("User not found"))
+
+				return
+			}
+
+			reqLog.Error("failed to check user verification", sl.Err(err))
+
+			render.Status(r, http.StatusInternalServerError)
+			render.JSON(w, r, resp.Error("Internal error"))
+
+			return
+		}
+
+		if !isVerified {
+			err = verification.VerifyUserEmail(
+				ctx,
+				log,
+				msgSender,
+				verificationTokenTTL,
+				verificationTokenSecret,
+				userID,
+				address,
+				req.Email,
+			)
+			if err != nil {
+				reqLog.Error("Failed to send verification email", sl.Err(err))
+
+				render.Status(r, http.StatusInternalServerError)
+				render.JSON(w, r, resp.Error("Internal error"))
+
+				return
+			}
+		}
+
+		reqLog.Info("Email successfully resended", slog.Int64("uid", userID))
+
+		responseOK(w, r)
+	}
+}
+
+func responseOK(w http.ResponseWriter, r *http.Request) {
+	render.JSON(w, r, response{
+		Response: resp.OK(),
+	})
+}

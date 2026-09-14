@@ -1,0 +1,1631 @@
+basePath: /
+definitions:
+  internal_http_server_handlers_account_delete.Request:
+    properties:
+      password:
+        example: SecurePass123!
+        type: string
+      session_id:
+        example: abcDEF123...
+        type: string
+      token:
+        example: fkajeDJ1p3FJ...
+        type: string
+    type: object
+  internal_http_server_handlers_account_request_restore_confirmation.Request:
+    properties:
+      app_id:
+        example: 1
+        type: integer
+      email:
+        example: example@domain.com
+        type: string
+    required:
+    - app_id
+    - email
+    type: object
+  internal_http_server_handlers_account_restore.Request:
+    properties:
+      app_id:
+        example: 1
+        type: integer
+      email:
+        example: example@domain.com
+        type: string
+      password:
+        example: SecurePass123!
+        type: string
+      session_id:
+        example: fkajeDJ1p3FJ...
+        type: string
+      token:
+        example: abcDEF123...
+        type: string
+    required:
+    - app_id
+    - email
+    type: object
+  internal_http_server_handlers_account_restore.Response:
+    properties:
+      access_token:
+        type: string
+      error:
+        example: error
+        type: string
+      refresh_token:
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+  internal_http_server_handlers_infrastructure_health.Response:
+    properties:
+      error:
+        example: error
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+  internal_http_server_handlers_oauth_accounts.Account:
+    properties:
+      created_at:
+        example: "2026-07-24T12:00:00Z"
+        type: string
+      email:
+        example: example@domain.com
+        type: string
+      provider:
+        example: google
+        type: string
+    type: object
+  internal_http_server_handlers_oauth_accounts.Response:
+    properties:
+      accounts:
+        items:
+          $ref: '#/definitions/internal_http_server_handlers_oauth_accounts.Account'
+        type: array
+      error:
+        example: error
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+  internal_http_server_handlers_oauth_callback.Response:
+    properties:
+      access_token:
+        example: fkajeDJ1p3FJ...
+        type: string
+      error:
+        example: error
+        type: string
+      refresh_token:
+        example: abcDEF123...
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+  internal_http_server_handlers_oauth_link.Response:
+    properties:
+      error:
+        example: error
+        type: string
+      redirect_url:
+        example: https://www.google.com/
+        type: string
+      status:
+        example: ok
+        type: string
+    type: object
+host: localhost:8082
+info:
+  contact: {}
+  description: Сервис авторизации
+  title: Auth Service API
+  version: "1.0"
+paths:
+  /account:
+    delete:
+      consumes:
+      - application/json
+      description: |-
+        Помечает аккаунт как удалённый (soft delete, grace period 7
+        дней). Требует подтверждения: паролем (если он установлен)
+        либо magic-link кодом, полученным через
+        /account/delete/request-confirmation (для oauth-only
+        пользователей без пароля). Все refresh-токены и активные
+        сессии немедленно отзываются. Идемпотентно — повторный вызов
+        на уже удалённый аккаунт не является ошибкой.
+      parameters:
+      - description: Пароль ИЛИ session_id+code
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_server_handlers_account_delete.Request'
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: Аккаунт удалён
+        "400":
+          description: Невалидный запрос
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access token отсутствует/невалиден, либо неверный пароль/код
+            подтверждения
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "429":
+          description: Превышен лимит запросов
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Удалить аккаунт
+      tags:
+      - account
+  /account/delete/request-confirmation:
+    post:
+      description: |-
+        Отправляет magic-link код на email текущего пользователя для
+        подтверждения удаления аккаунта. Требуется только для
+        oauth-only пользователей без пароля — у них нет иного
+        способа подтвердить чувствительное действие. Возвращает
+        session_id, который затем передаётся вместе с кодом из письма
+        в /account/delete.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Код отправлен на email
+          schema:
+            properties:
+              session_id:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access token отсутствует, невалиден или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Запросить подтверждение удаления аккаунта через magic link
+      tags:
+      - account
+  /account/restore:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Отменяет soft-delete, если grace period (7 дней) ещё не
+        истёк, и сразу выдаёт access/refresh токены. Требует
+        подтверждения: паролем (если он установлен) либо
+        magic-link токеном, полученным через
+        /account/restore/request-confirmation (для oauth-only
+        пользователей без пароля). Неаутентифицированный эндпоинт.
+      parameters:
+      - description: Email + (пароль ИЛИ session_id+token) + app_id
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_server_handlers_account_restore.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Аккаунт восстановлен, выданы токены
+          schema:
+            $ref: '#/definitions/internal_http_server_handlers_account_restore.Response'
+        "400":
+          description: Невалидный запрос
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Неверный пароль или код подтверждения, аккаунт не найден, не
+            был удалён или grace period истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "429":
+          description: Превышен лимит запросов
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Восстановить удалённый аккаунт
+      tags:
+      - account
+  /account/restore/request-confirmation:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Отправляет magic-link код на email указанного (soft-deleted)
+        аккаунта для подтверждения восстановления. Неаутентифицированный
+        эндпоинт — юзер не может залогиниться, пока аккаунт удалён.
+        Возвращает session_id для последующего запроса в /account/restore.
+      parameters:
+      - description: Email и app_id
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_http_server_handlers_account_request_restore_confirmation.Request'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Код отправлен на email
+          schema:
+            properties:
+              session_id:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Невалидный запрос
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "429":
+          description: Превышен лимит запросов
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Запросить подтверждение восстановления аккаунта через magic link
+      tags:
+      - account
+  /auth/2fa/disable/request-confirmation:
+    post:
+      description: |-
+        Отправляет magic-link код на email текущего пользователя для
+        подтверждения отключения 2FA. Требуется только для
+        oauth-only пользователей без пароля — у них нет иного
+        способа подтвердить чувствительное действие. Возвращает
+        session_id, который затем передаётся вместе с кодом из письма
+        в /auth/2fa/disable.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Код отправлен на email
+          schema:
+            properties:
+              session_id:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access token отсутствует, невалиден или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Запросить подтверждение отключения 2FA через magic link
+      tags:
+      - 2fa
+  /auth/2fa/magic-link/disable:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Отключает magic-link 2FA. Подтверждение зависит от того, есть
+        ли у пользователя пароль: если да — передаётся password; если
+        нет (oauth-only аккаунт) — передаются session_id и token,
+        полученные через /auth/2fa/magic-link/request-action-confirmation.
+      parameters:
+      - description: Подтверждение отключения (один из наборов полей)
+        in: body
+        name: request
+        schema:
+          properties:
+            password:
+              type: string
+            session_id:
+              type: string
+            token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 2FA отключена
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access token отсутствует, невалиден или истёк, либо неверное
+            подтверждение (пароль/magic-link код)
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "409":
+          description: 2FA не включена
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Отключить magic-link 2FA
+      tags:
+      - 2fa
+  /auth/2fa/magic-link/enable:
+    post:
+      description: |-
+        Включает magic-link 2FA для текущего пользователя. Требует,
+        чтобы у пользователя уже был рабочий фактор для будущего
+        отключения (пароль или хотя бы один привязанный oauth-аккаунт) —
+        иначе включение необратимо заблокирует доступ к аккаунту.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 2FA включена
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access token отсутствует, невалиден или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "409":
+          description: 2FA уже включена, либо нет ни одного доступного фактора для
+            будущего disable
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Включить magic-link 2FA
+      tags:
+      - 2fa
+  /auth/2fa/magic-link/resend:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Инвалидирует предыдущую активную ссылку и высылает новую в
+        рамках той же pending-сессии, начатой на /auth/login. Не
+        подтверждает и не раскрывает факт доставки письма — ответ
+        одинаковый независимо от того, дошло письмо или нет.
+      parameters:
+      - description: Идентификатор pending-сессии
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            session_id:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Новая ссылка отправлена (либо попытка предпринята)
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: Невалидное тело запроса
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Pending-сессия не найдена или истекла — нужно начать логин
+            заново
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "429":
+          description: Слишком частые запросы на повторную отправку
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Повторно отправить magic-link
+      tags:
+      - 2fa
+  /auth/2fa/magic-link/verify:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Завершает второй фактор аутентификации: проверяет токен из
+        письма в связке с session_id, полученным на этапе /auth/login,
+        и при успехе выдаёт access/refresh токены. Токен одноразовый —
+        повторное использование того же токена или session_id отклоняется.
+      parameters:
+      - description: Данные для подтверждения
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            session_id:
+              type: string
+            token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 2FA подтверждена, выданы токены
+          schema:
+            properties:
+              access_token:
+                type: string
+              refresh_token:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Невалидное тело запроса или ошибка валидации
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Токен невалиден, истёк, уже использован, либо сессия истекла
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Подтверждение magic-link 2FA
+      tags:
+      - 2fa
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        ## Описание
+        Выполняет аутентификацию пользователя по email и паролю. Если
+        у пользователя включена magic-link 2FA, вместо токенов
+        возвращается session_id для подтверждения через
+        /auth/2fa/magic-link/verify; access/refresh в этом случае не выдаются.
+
+        ### Процесс аутентификации:
+        1. Валидация входных данных (email формат, наличие пароля)
+        2. Проверка существования пользователя в базе данных
+        3. Верификация пароля (bcrypt hash comparison)
+        4. Проверка статуса email (должен быть подтвержден)
+        5. Валидация app_id (приложение должно существовать)
+        6. Проверка статуса 2FA:
+        - если выключена — генерация JWT токенов (access и refresh)
+        - если включена — создание pending-сессии, отправка magic link на email, возврат session_id без токенов
+
+        ### Токены:
+        - **Access Token**: JWT токен для доступа к защищенным ресурсам (TTL: 15 минут)
+        - **Refresh Token**: JWT токен для обновления access токена (TTL: 30 дней)
+        - **Session ID** (при включённой 2FA): используется для подтверждения через /auth/2fa/magic-link/verify, не является токеном доступа
+
+        ### Коды ошибок:
+        - `400` - Некорректные данные (невалидный email, отсутствие полей, невалидный app_id)
+        - `401` - Неверные credentials (пароль не совпадает; используется и для несуществующего email — не различается намеренно, во избежание user enumeration)
+        - `403` - Email не подтвержден
+        - `500` - Внутренняя ошибка сервера
+      parameters:
+      - description: Данные для входа
+        in: body
+        name: credentials
+        required: true
+        schema:
+          properties:
+            app_id:
+              type: integer
+            email:
+              type: string
+            password:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Пароль верен, требуется подтверждение magic-link 2FA
+          schema:
+            properties:
+              session_id:
+                type: string
+              status:
+                type: string
+              two_factor_pending:
+                type: boolean
+            type: object
+        "400":
+          description: Ошибка валидации или невалидный app_id
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Неверные credentials
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "403":
+          description: Email не подтвержден
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Аутентификация пользователя
+      tags:
+      - auth
+      x-order: 1
+  /auth/logout:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        ## Описание
+        Завершает активную сессию пользователя, инвалидируя refresh токен.
+
+        ### Процесс выхода:
+        1. Валидация refresh токена из тела запроса
+        2. Проверка существования токена в базе данных
+        3. Добавление токена в blacklist (Redis)
+        4. Удаление токена из таблицы активных сессий
+        5. Инвалидация связанного access токена
+
+        ### Особенности:
+        - После logout refresh токен больше нельзя использовать для получения новых access токенов
+        - Access токен технически остается валидным до истечения TTL (~15 минут)
+        - Для немедленной инвалидации access токена используется blacklist в Redis
+        - Поддержка "logout from all devices" (опционально)
+
+        ### Безопасность:
+        - Токен в blacklist хранится только до истечения его TTL
+        - При попытке использовать инвалидированный токен возвращается 401
+        - Логирование всех операций logout для аудита
+      parameters:
+      - description: Refresh токен для инвалидации
+        in: body
+        name: token
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешный выход из системы
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: 'Ошибка валидации: токен не передан или некорректный JSON'
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Невалидный или истекший refresh токен
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Выход из системы
+      tags:
+      - auth
+      x-order: 4
+  /auth/oauth/{provider}:
+    delete:
+      description: |-
+        Удаляет связь между указанным OAuth-провайдером и аккаунтом
+        текущего аутентифицированного пользователя.
+        Если этот способ входа является последним доступным методом
+        аутентификации, операция будет отклонена, чтобы предотвратить
+        потерю доступа к аккаунту.
+      parameters:
+      - description: 'Название OAuth-провайдера (например: google, github)'
+        in: path
+        name: provider
+        required: true
+        type: string
+      responses:
+        "204":
+          description: OAuth-провайдер успешно отвязан
+        "401":
+          description: Access-токен отсутствует, недействителен или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "403":
+          description: Нельзя отвязать последний доступный способ аутентификации
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: У пользователя отсутствует привязка к указанному OAuth-провайдеру
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Отвязка OAuth-провайдера от аккаунта
+      tags:
+      - oauth
+  /auth/oauth/{provider}/callback:
+    get:
+      description: |-
+        Обрабатывает перенаправление от OAuth-провайдера после того, как пользователь предоставил или отклонил доступ.
+        Проверяет параметр state на соответствие ранее сохранённому значению (авторизация или привязка аккаунта),
+        обменивает код авторизации на токены провайдера и в зависимости от типа операции
+        либо выдает новую пару access и refresh токенов,
+        либо привязывает OAuth-провайдера к существующему аккаунту.
+      parameters:
+      - description: 'Название OAuth-провайдера (например: google, github)'
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: Код авторизации, полученный от OAuth-провайдера
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: Токен состояния (state), должен совпадать со значением, выданным
+          при начале авторизации или привязки аккаунта
+        in: query
+        name: state
+        required: true
+        type: string
+      - description: Код ошибки, возвращаемый OAuth-провайдером, если пользователь
+          отказал в доступе
+        in: query
+        name: error
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Успешная авторизация или привязка аккаунта
+          schema:
+            $ref: '#/definitions/internal_http_server_handlers_oauth_callback.Response'
+        "400":
+          description: Пользователь отказал в доступе, отсутствуют параметры code/state,
+            указан некорректный app_id либо state недействителен или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "403":
+          description: Email, полученный от OAuth-провайдера, не подтверждён
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: Указанный OAuth-провайдер не поддерживается
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "409":
+          description: 'Конфликт данных: аккаунт с таким email уже существует либо
+            OAuth-провайдер уже привязан к другому аккаунту'
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Callback OAuth-провайдера
+      tags:
+      - oauth
+  /auth/oauth/{provider}/link:
+    get:
+      description: |-
+        Запускает OAuth2-процесс привязки стороннего OAuth-провайдера к аккаунту
+        текущего аутентифицированного пользователя.
+        Требует действительный access-токен. Идентификатор пользователя
+        извлекается из его данных, а не из параметров запроса,
+        поэтому привязка всегда выполняется для текущей сессии.
+      parameters:
+      - description: 'Название OAuth-провайдера (например: google, github)'
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: URL, на который будет выполнено перенаправление после завершения
+          авторизации. Должен входить в список разрешённых адресов.
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Ссылка для перехода к OAuth-провайдеру
+          schema:
+            $ref: '#/definitions/internal_http_server_handlers_oauth_link.Response'
+        "400":
+          description: Некорректный redirect_uri или app_id
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Access-токен отсутствует, недействителен или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: OAuth-провайдер не поддерживается
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Привязка OAuth-провайдера к существующему аккаунту
+      tags:
+      - oauth
+  /auth/oauth/{provider}/login:
+    get:
+      description: |-
+        Запускает процесс OAuth2-авторизации для указанного OAuth-провайдера.
+        Проверяет корректность app_id и redirect_uri, а также соответствие
+        redirect_uri списку разрешённых адресов.
+        После успешной проверки формирует параметр state и перенаправляет
+        пользователя на страницу авторизации OAuth-провайдера.
+      parameters:
+      - description: 'Название OAuth-провайдера (например: google, github)'
+        in: path
+        name: provider
+        required: true
+        type: string
+      - description: Идентификатор клиентского приложения
+        in: query
+        name: app_id
+        required: true
+        type: integer
+      - description: URL для перенаправления после завершения авторизации. Должен
+          входить в список разрешённых адресов.
+        in: query
+        name: redirect_uri
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Перенаправление на страницу авторизации OAuth-провайдера
+        "400":
+          description: Некорректный app_id или redirect_uri не прошёл проверку
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: OAuth-провайдер не поддерживается
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Не удалось сформировать URL для авторизации
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Начало OAuth-авторизации
+      tags:
+      - oauth
+  /auth/oauth/accounts:
+    get:
+      description: |-
+        Возвращает все OAuth-провайдеры, привязанные к аккаунту
+        текущего аутентифицированного пользователя.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Список привязанных аккаунтов
+          schema:
+            $ref: '#/definitions/internal_http_server_handlers_oauth_accounts.Response'
+        "401":
+          description: Access token отсутствует, невалиден или истёк
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      security:
+      - BearerAuth: []
+      summary: Список привязанных OAuth-аккаунтов
+      tags:
+      - oauth
+  /auth/password/forgot:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Запускает процесс сброса пароля для указанного адреса электронной почты.
+        Независимо от того, существует ли аккаунт с указанным email,
+        всегда возвращает ответ с кодом 200, чтобы исключить возможность
+        определения существования аккаунтов.
+        Если аккаунт существует, на указанный email будет отправлено
+        письмо со ссылкой для сброса пароля. Ошибки отправки письма
+        фиксируются на стороне сервера и не влияют на ответ API.
+      parameters:
+      - description: Адрес электронной почты пользователя
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Запрос успешно принят
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: Некорректное тело запроса или ошибка валидации
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "429":
+          description: Превышен допустимый лимит запросов
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Запрос на сброс пароля
+      tags:
+      - auth
+  /auth/password/reset:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        Сбрасывает пароль пользователя с использованием токена,
+        полученного по электронной почте.
+        Токен должен быть передан в теле запроса в формате
+        "selector.verifier", где selector — UUID, а verifier —
+        строка в формате URL-safe Base64.
+        Токен можно использовать только один раз. После успешного
+        сброса пароля он становится недействительным.
+        Новый пароль должен содержать не менее 8 символов и
+        отличаться от текущего пароля.
+      parameters:
+      - description: Токен для сброса пароля и новый пароль
+        in: body
+        name: request
+        required: true
+        schema:
+          properties:
+            password:
+              type: string
+            token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Пароль успешно сброшен
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: Некорректный формат токена, токен недействителен, истёк или
+            уже был использован, пароль не соответствует требованиям либо совпадает
+            с текущим
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Сброс пароля
+      tags:
+      - auth
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        ## Описание
+        Обменивает действующий refresh токен на новую пару токенов (access и refresh).
+
+        ### Процесс обновления:
+        1. Валидация refresh токена (подпись JWT, срок действия)
+        2. Извлечение user_id и app_id из payload токена
+        3. Проверка что токен не находится в blacklist (Redis)
+        4. Проверка статуса пользователя (не заблокирован, email подтвержден)
+        5. Генерация новой пары токенов:
+        - Новый access токен (TTL: 15 минут)
+        - Новый refresh токен (TTL: 30 дней)
+        6. Инвалидация старого refresh токена (token rotation)
+        7. Сохранение нового refresh токена в БД
+
+        ### Token Rotation (безопасность):
+        - **Каждый refresh токен одноразовый** — после использования старый токен инвалидируется
+        - Это защищает от атак с украденными токенами
+        - При попытке использовать старый токен — все сессии пользователя инвалидируются
+
+        ### Время жизни токенов:
+        - **Access Token**: 15 минут (короткий для безопасности)
+        - **Refresh Token**: 30 дней (удобство для пользователя)
+        - Если пользователь неактивен 30 дней — требуется повторный login
+
+        ### Когда использовать:
+        - Access токен истек (получили 401 на защищенном endpoint)
+        - Превентивное обновление перед истечением access токена
+        - После длительного простоя приложения
+
+        ### Ошибки:
+        - `400`: Невалидный JSON или отсутствует refresh_token
+        - `401`: Токен истек, невалиден или уже использован
+        - `403`: Пользователь заблокирован
+        - `500`: Ошибка БД или генерации токенов
+      parameters:
+      - description: Текущий refresh токен
+        in: body
+        name: token
+        required: true
+        schema:
+          properties:
+            refresh_token:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Новая пара токенов
+          schema:
+            properties:
+              access_token:
+                type: string
+              refresh_token:
+                type: string
+              status:
+                type: string
+            type: object
+        "400":
+          description: Ошибка валидации
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Невалидный или истекший токен
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Обновление access токена
+      tags:
+      - auth
+      x-order: 3
+  /auth/register:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        ## Описание
+        Создает новую учетную запись пользователя в системе и отправляет письмо с подтверждением email.
+
+        ### Процесс регистрации:
+        1. Валидация входных данных (email формат, наличие username и пароля)
+        2. Проверка уникальности email и username в базе данных
+        3. Хеширование пароля с использованием bcrypt (cost factor 12)
+        4. Создание записи пользователя в БД со статусом `email_verified = false`
+        5. Генерация JWT токена верификации (валиден 24 часа)
+        6. Отправка email с ссылкой подтверждения через RabbitMQ
+
+        ### Требования к данным:
+        - **Email**: Валидный email формат (example@domain.com), должен быть уникальным
+        - **Username**: Минимум 3 символа, только буквы, цифры и подчеркивание, должен быть уникальным
+        - **Password**: Минимум 8 символов, рекомендуется использовать заглавные буквы, цифры и спецсимволы
+
+        ### Email верификация:
+        - Письмо отправляется асинхронно через RabbitMQ (не блокирует ответ)
+        - Токен верификации действует 24 часа
+        - До подтверждения email пользователь не может войти в систему
+        - Неподтвержденные аккаунты автоматически удаляются через 7 дней
+
+        ### Формат ссылки верификации:
+        `http://domain.com/auth/verify?token=eyJhbGc...`
+      parameters:
+      - description: Данные нового пользователя
+        in: body
+        name: user
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+            username:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Пользователь успешно создан, письмо отправлено
+          schema:
+            properties:
+              status:
+                type: string
+              user_id:
+                type: integer
+            type: object
+        "400":
+          description: 'Ошибка валидации: некорректный email, слишком короткий пароль
+            или отсутствуют обязательные поля'
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "409":
+          description: Пользователь с таким email или username уже существует
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: 'Внутренняя ошибка: проблемы с БД, RabbitMQ или email сервисом'
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Регистрация нового пользователя
+      tags:
+      - auth
+      x-order: 2
+  /auth/verify:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        ## Описание
+        Подтверждает email адрес пользователя по токену из письма, активируя учетную запись.
+
+        ### Процесс верификации:
+        1. Извлечение токена из query параметра `token`
+        2. Валидация JWT токена (подпись, срок действия)
+        3. Извлечение user_id из payload токена
+        4. Проверка что пользователь существует и email еще не подтвержден
+        5. Обновление статуса `email_verified = true` в базе данных
+        6. Инвалидация токена (предотвращение повторного использования)
+
+        ### Особенности токена:
+        - **Срок действия**: 24 часа с момента регистрации
+        - **Формат**: JWT (JSON Web Token) подписанный HMAC-SHA256
+        - **Одноразовый**: После успешной верификации токен инвалидируется
+        - **Payload**: Содержит `user_id` и `exp` (время истечения)
+
+        ### После подтверждения:
+        - Пользователь может войти в систему через `/auth/login`
+        - Email помечен как подтвержденный навсегда
+        - Опционально: отправка welcome email
+
+        ### Ошибки:
+        - `400`: Токен отсутствует в URL
+        - `401`: Токен невалидный, истек или уже использован
+        - `500`: Ошибка базы данных
+      parameters:
+      - description: JWT токен верификации из email
+        in: query
+        name: token
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Email успешно подтвержден, можно входить в систему
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: Токен отсутствует в URL
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "401":
+          description: Токен невалидный, истек или уже использован
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Подтверждение email адреса
+      tags:
+      - auth
+      x-order: 5
+  /auth/verify/resend:
+    post:
+      consumes:
+      - application/json
+      description: |
+        ## Описание
+        Повторно отправляет письмо с подтверждением email адреса пользователю.
+
+        ### Процесс отправки:
+        1. Валидация email формата
+        2. Проверка существования пользователя с указанным email
+        3. Проверка статуса верификации email
+        4. Если email не подтвержден - генерация нового токена верификации
+        5. Отправка письма через RabbitMQ
+        6. Возврат успешного ответа (независимо от статуса верификации)
+
+        ### Когда использовать:
+        - Пользователь не получил первое письмо
+        - Токен верификации истек (24 часа)
+        - Письмо попало в спам
+        - Пользователь случайно удалил письмо
+
+        ### Безопасность (важно!):
+        - Endpoint всегда возвращает 200 OK, даже если email уже подтвержден
+        - Это предотвращает enumeration атаки (определение существующих email)
+        - Не раскрывает информацию о существовании пользователя
+        - Rate limiting должен быть настроен (максимум 3 запроса в час на email)
+
+        ### Особенности:
+        - Если email уже подтвержден - письмо не отправляется (но ответ 200 OK)
+        - Новый токен инвалидирует предыдущий
+        - Токен действителен 24 часа
+        - Отправка асинхронная через RabbitMQ (не блокирует ответ)
+      parameters:
+      - description: Email пользователя
+        in: body
+        name: email
+        required: true
+        schema:
+          properties:
+            email:
+              type: string
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Письмо отправлено (или email уже подтвержден)
+          schema:
+            properties:
+              status:
+                type: string
+            type: object
+        "400":
+          description: 'Ошибка валидации: некорректный email формат'
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "404":
+          description: Пользователь не найден
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+        "500":
+          description: Внутренняя ошибка сервера
+          schema:
+            properties:
+              error:
+                type: string
+              status:
+                type: string
+            type: object
+      summary: Повторная отправка письма верификации
+      tags:
+      - auth
+      x-order: 6
+  /health:
+    get:
+      description: Проверяет, запущен ли сервис и готов ли он обрабатывать запросы.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_http_server_handlers_infrastructure_health.Response'
+      summary: Проверка работоспособности
+      tags:
+      - System
+  /metrics:
+    get:
+      description: |-
+        Отдаёт метрики сервиса в формате Prometheus exposition format.
+        Не предназначен для вызова из браузера/фронтенда — эндпоинт
+        для scrape'а Prometheus-сервером.
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Метрики в текстовом формате Prometheus
+          schema:
+            type: string
+      summary: Prometheus метрики
+      tags:
+      - System
+swagger: "2.0"
