@@ -1,4 +1,4 @@
-module email_sender
+module notification_service
 
 go 1.26.7
 

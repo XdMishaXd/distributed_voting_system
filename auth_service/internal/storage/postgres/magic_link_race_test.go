@@ -26,7 +26,8 @@ func setupTestRepo(t *testing.T) *Repo {
 	t.Helper()
 	ctx := context.Background()
 
-	container, err := tcpostgres.Run(ctx,
+	container, err := tcpostgres.Run(
+		ctx,
 		"postgres:18-alpine",
 		tcpostgres.WithDatabase("auth_test"),
 		tcpostgres.WithUsername("test"),
@@ -51,17 +52,17 @@ func setupTestRepo(t *testing.T) *Repo {
 		t.Fatalf("sql.Open: %v", err)
 	}
 	defer func() {
-		if err := sqlDB.Close(); err != nil {
+		if err = sqlDB.Close(); err != nil {
 			t.Logf("failed to close sqlDB: %v", err)
 		}
 	}()
 
-	if err := goose.SetDialect("postgres"); err != nil {
+	if err = goose.SetDialect("postgres"); err != nil {
 		t.Fatalf("goose.SetDialect: %v", err)
 	}
 
-	migrationsDir := filepath.Join("..", "..", "..", "migrations", "init_table")
-	if err := goose.Up(sqlDB, migrationsDir); err != nil {
+	migrationsDir := filepath.Join("..", "..", "..", "migrations", "20251119160405_init_table.sql")
+	if err = goose.Up(sqlDB, migrationsDir); err != nil {
 		t.Fatalf("goose.Up: %v", err)
 	}
 

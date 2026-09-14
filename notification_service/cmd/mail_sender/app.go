@@ -5,17 +5,17 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"notification_service/internal/config"
+	"notification_service/internal/mailer"
+	"notification_service/internal/metrics"
+	"notification_service/internal/rabbitmq"
+	"notification_service/internal/router"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"email_sender/internal/config"
-	emailhandler "email_sender/internal/email_handler"
-	"email_sender/internal/mailer"
-	"email_sender/internal/metrics"
-	"email_sender/internal/rabbitmq"
-	"email_sender/internal/router"
+	emailhandler "notification_service/internal/email_handler"
 )
 
 func run(cfg *config.Config, log *slog.Logger) error {

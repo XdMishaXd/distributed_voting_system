@@ -359,7 +359,7 @@
     {
       "id": 16,
       "type": "row",
-      "title": "email_sender — consumer",
+      "title": "notification_service — consumer",
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -383,12 +383,12 @@
       },
       "targets": [
         {
-          "expr": "rate(messages_consumed_total{job=\"email_sender\"}[1m])",
+          "expr": "rate(messages_consumed_total{job=\"notification_service\"}[1m])",
           "legendFormat": "consumed",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(messages_failed_total{job=\"email_sender\"}[1m])) by (reason)",
+          "expr": "sum(rate(messages_failed_total{job=\"notification_service\"}[1m])) by (reason)",
           "legendFormat": "failed: {{reason}}",
           "refId": "B"
         }
@@ -410,7 +410,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(message_processing_duration_seconds_bucket{job=\"email_sender\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(message_processing_duration_seconds_bucket{job=\"notification_service\"}[5m])) by (le))",
           "legendFormat": "p95",
           "refId": "A"
         }

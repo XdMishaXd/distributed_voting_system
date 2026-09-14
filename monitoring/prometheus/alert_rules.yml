@@ -17,7 +17,7 @@ groups:
           severity: critical
         annotations:
           summary: "В DLQ {{ $labels.queue }} есть сообщения"
-          description: "{{ $value }} сообщений скопилось в {{ $labels.queue }} — email_sender не смог их обработать, письма не доставлены."
+          description: "{{ $value }} сообщений скопилось в {{ $labels.queue }} — notification_service не смог их обработать, письма не доставлены."
 
       - alert: EmailProcessingFailures
         expr: rate(messages_failed_total[5m]) > 0
@@ -25,5 +25,5 @@ groups:
         labels:
           severity: critical
         annotations:
-          summary: "email_sender не может обработать сообщения"
+          summary: "notification_service не может обработать сообщения"
           description: "Rate failed messages: {{ $value }}/сек за последние 5 минут, reason={{ $labels.reason }}."

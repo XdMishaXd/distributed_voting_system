@@ -14,7 +14,7 @@ scrape_configs:
         refresh_interval: 5s
     relabel_configs:
       # берём имя контейнера как лейбл — без него в Grafana не отличить
-      # логи auth_service от email_sender
+      # логи auth_service от notification_service
       - source_labels: ["__meta_docker_container_name"]
         regex: "/(.*)"
         target_label: "container"

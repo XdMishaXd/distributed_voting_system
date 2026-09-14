@@ -1,9 +1,9 @@
 package router
 
 import (
-	"email_sender/internal/http_server/handlers/infrastructure/health"
-	metricshandler "email_sender/internal/http_server/handlers/infrastructure/metrics_handler"
-	"email_sender/internal/metrics"
+	"notification_service/internal/http_server/handlers/infrastructure/health"
+	metricshandler "notification_service/internal/http_server/handlers/infrastructure/metrics_handler"
+	"notification_service/internal/metrics"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

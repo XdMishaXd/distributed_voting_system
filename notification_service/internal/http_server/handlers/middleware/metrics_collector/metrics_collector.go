@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"email_sender/internal/metrics"
+	"notification_service/internal/metrics"
 
 	"github.com/go-chi/chi/v5"
 )

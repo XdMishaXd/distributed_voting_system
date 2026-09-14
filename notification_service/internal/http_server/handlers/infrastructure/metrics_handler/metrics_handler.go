@@ -3,7 +3,7 @@ package metricshandler
 import (
 	"net/http"
 
-	"email_sender/internal/metrics"
+	"notification_service/internal/metrics"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )

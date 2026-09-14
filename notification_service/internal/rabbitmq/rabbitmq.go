@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"email_sender/internal/metrics"
+	"notification_service/internal/metrics"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -95,7 +95,8 @@ func (r *RabbitMQClient) processMessage(ctx context.Context, msg amqp.Delivery, 
 
 	if procErr != nil {
 		r.metrics.MessagesFailedTotal.WithLabelValues(reasonLabel()).Inc()
-		r.log.Error("message processing failed",
+		r.log.Error(
+			"message processing failed",
 			"error", procErr,
 			"delivery_tag", msg.DeliveryTag,
 			"redelivered", msg.Redelivered,

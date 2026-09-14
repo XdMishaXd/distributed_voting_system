@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-
-	"email_sender/internal/config"
-	"email_sender/internal/lib/sl"
-	"email_sender/internal/mailer"
-	"email_sender/internal/models"
+	
+	"notification_service/internal/config"
+	"notification_service/internal/lib/sl"
+	"notification_service/internal/mailer"
+	"notification_service/internal/models"
 )
 
 type Handler struct {
@@ -45,7 +45,8 @@ func (h *Handler) Handle(ctx context.Context, msg []byte) error {
 		link,
 		emailMsg.Purpose,
 	); err != nil {
-		h.log.Error("failed to send message",
+		h.log.Error(
+			"failed to send message",
 			sl.Err(err),
 			slog.String("email", emailMsg.Email),
 			slog.String("purpose", emailMsg.Purpose),
@@ -53,7 +54,8 @@ func (h *Handler) Handle(ctx context.Context, msg []byte) error {
 		return fmt.Errorf("%s: send: %w", op, err)
 	}
 
-	h.log.Info("message sent successfully",
+	h.log.Info(
+		"message sent successfully",
 		slog.String("email", emailMsg.Email),
 		slog.String("purpose", emailMsg.Purpose),
 	)
