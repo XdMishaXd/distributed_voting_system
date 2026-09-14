@@ -8,46 +8,40 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth_service, voting_service, notification_service]
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
-          go-version: "1.25.12"
+          go-version: "1.26.7"
           cache: true
-          cache-dependency-path: auth_service/go.sum
+          cache-dependency-path: ${{ matrix.service }}/go.sum
 
-      - name: Vet auth service
-        working-directory: ./auth_service
+      - name: Vet
+        working-directory: ./${{ matrix.service }}
         run: go vet ./...
 
-      - name: Lint auth service
-        uses: golangci/golangci-lint-action@v8
+      - name: Lint
+        uses: golangci/golangci-lint-action@v9
         with:
-          working-directory: ./auth_service
+          working-directory: ./${{ matrix.service }}
           version: v2.12.2
 
-      - name: Test auth service
-        working-directory: ./auth_service
+      - name: Test
+        working-directory: ./${{ matrix.service }}
         run: go test -race -cover ./...
-
-      - name: Vet mail sender
-        working-directory: ./email_sender
-        run: go vet ./...
-
-      - name: Lint mail sender
-        uses: golangci/golangci-lint-action@v8
-        with:
-          working-directory: ./email_sender
-          version: v2.12.2
 
   compose-validate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Create dummy env files for config validation
         run: |
@@ -55,7 +49,7 @@ jobs:
           echo "POSTGRES_PASSWORD=ci" >> .env
           echo "POSTGRES_DB=ci" >> .env
           echo "PLACEHOLDER=ci" > ./auth_service/.env
-          echo "PLACEHOLDER=ci" > ./email_sender/.env
+          echo "PLACEHOLDER=ci" > ./notification_service/.env
           echo "PLACEHOLDER=ci" > ./monitoring/.env
 
       - name: Validate docker compose config
@@ -64,9 +58,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [test]
+    strategy:
+      matrix:
+        service: [auth_service, voting_service, notification_service]
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+      - name: Build ${{ matrix.service }} image
+        run: docker build -f ./${{ matrix.service }}/docker/Dockerfile -t ${{ matrix.service }}:ci ./${{ matrix.service }}
 
-      - name: Build auth_service image
-        run: docker build -f ./auth_service/docker/Dockerfile -t auth_service:ci ./auth_service
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
