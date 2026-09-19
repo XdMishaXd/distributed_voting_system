@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"auth_service/internal/config"
 
@@ -28,10 +27,10 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Repo, erro
 		return nil, fmt.Errorf("%s: failed to parse config: %w", op, err)
 	}
 
-	poolConfig.MaxConns = 10
-	poolConfig.MinConns = 2
-	poolConfig.MaxConnLifetime = time.Hour
-	poolConfig.MaxConnIdleTime = time.Minute * 30
+	poolConfig.MaxConns = cfg.Postgres.MaxOpenConns
+	poolConfig.MinConns = cfg.Postgres.MinOpenConns
+	poolConfig.MaxConnLifetime = cfg.Postgres.MaxConnLifetime
+	poolConfig.MaxConnIdleTime = cfg.Postgres.MaxConnIdletime
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
@@ -68,7 +67,8 @@ func (r *Repo) Close(ctx context.Context) error {
 
 // dsn формирует строку подключения к базе данных.
 func dsn(cfg *config.Config) string {
-	return fmt.Sprintf("host=%s port=%d user=%s password=%s database=%s sslmode=%s",
+	return fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s database=%s sslmode=%s",
 		cfg.Postgres.Host,
 		cfg.Postgres.Port,
 		cfg.Postgres.User,

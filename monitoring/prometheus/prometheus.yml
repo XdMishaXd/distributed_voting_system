@@ -1,6 +1,6 @@
 global:
   scrape_interval: 15s # как часто опрашивать таргеты
-  evaluation_interval: 15s # как часто считать recording/alerting rules (пока их нет)
+  evaluation_interval: 15s # как часто считать recording/alerting rules
   external_labels:
     environment: dev # staging, prod
 
@@ -49,3 +49,10 @@ scrape_configs:
       - targets: ["notification_service:8081"]
         labels:
           service: notification_service
+
+  - job_name: clickhouse
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["clickhouse:9363"]
+        labels:
+          service: clickhouse

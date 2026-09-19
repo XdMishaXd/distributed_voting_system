@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	
+
 	"notification_service/internal/config"
 	"notification_service/internal/lib/sl"
 	"notification_service/internal/mailer"
