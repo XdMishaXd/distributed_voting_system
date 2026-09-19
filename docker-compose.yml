@@ -28,6 +28,35 @@ services:
         max-size: "10m"
         max-file: "3"
     networks: [backend]
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: clickhouse
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+      - ./voting_service/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+    expose:
+      - "8123"  # HTTP interface
+      - "9000"  # native TCP (clickhouse-go driver)
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    deploy:
+      resources:
+        limits:
+          memory: 2G  
   postgres_backup:
     image: prodrigestivill/postgres-backup-local:18-alpine
     container_name: postgres_backup
@@ -323,3 +352,5 @@ volumes:
   rabbitmq_data:
   alertmanager_data:
   nginx_cache:
+  clickhouse_data:
+  clickhouse_logs:

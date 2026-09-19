@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -16,7 +15,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pressly/goose/v3"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
@@ -57,14 +55,7 @@ func setupTestRepo(t *testing.T) *Repo {
 		}
 	}()
 
-	if err = goose.SetDialect("postgres"); err != nil {
-		t.Fatalf("goose.SetDialect: %v", err)
-	}
-
-	migrationsDir := filepath.Join("..", "..", "..", "migrations", "20251119160405_init_table.sql")
-	if err = goose.Up(sqlDB, migrationsDir); err != nil {
-		t.Fatalf("goose.Up: %v", err)
-	}
+	applyMigrations(t, sqlDB)
 
 	// Реальный pgxpool.Pool для самого репозитория — то же соединение,
 	// но через боевой драйвер, которым пользуется PostgresRepo в проде.

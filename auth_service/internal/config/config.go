@@ -54,12 +54,16 @@ type TwoFactorAuth struct {
 }
 
 type Postgres struct {
-	Host     string `yaml:"host" env-default:"postgres"`
-	Port     int    `yaml:"port" env-default:"5432"`
-	User     string `yaml:"-" env:"POSTGRES_USER" env-required:"true"`
-	Password string `yaml:"-" env:"POSTGRES_PASSWORD" env-required:"true"`
-	DBName   string `yaml:"-" env:"POSTGRES_DB" env-required:"true"`
-	SSLMode  string `yaml:"sslmode" env-default:"disable"`
+	Host            string        `yaml:"host" env-default:"postgres"`
+	Port            int           `yaml:"port" env-default:"5432"`
+	User            string        `yaml:"-" env:"POSTGRES_USER" env-required:"true"`
+	Password        string        `yaml:"-" env:"POSTGRES_PASSWORD" env-required:"true"`
+	DBName          string        `yaml:"-" env:"POSTGRES_DB" env-required:"true"`
+	SSLMode         string        `yaml:"sslmode" env-default:"disable"`
+	MaxOpenConns    int32         `yaml:"max_open_conns" env-default:"10"`
+	MinOpenConns    int32         `yaml:"min_open_conns" env-default:"2"`
+	MaxConnLifetime time.Duration `yaml:"max_conn_lifetime" env-default:"1h"`
+	MaxConnIdletime time.Duration `yaml:"max_conn_idletime" env-default:"30m"`
 }
 
 type Redis struct {
